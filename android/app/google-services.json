@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "572284630639",
+    "project_id": "myexhibit-app-9e2b3",
+    "storage_bucket": "myexhibit-app-9e2b3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:572284630639:android:acf5015e7c21a79e7c3f9a",
+        "android_client_info": {
+          "package_name": "com.example.myexhibit_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDq80f2__ft4ppjr--dBcAl390E3Nwc4_M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:572284630639:android:677de46eb59471b47c3f9a",
+        "android_client_info": {
+          "package_name": "com.myexhibit.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDq80f2__ft4ppjr--dBcAl390E3Nwc4_M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
