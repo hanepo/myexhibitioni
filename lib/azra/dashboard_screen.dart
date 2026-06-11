@@ -42,8 +42,8 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen> {
   Widget build(BuildContext context) {
     final List<Widget> children = [
       _buildDashboardHome(context),
-      const ApplicationTabScreen(),
-      const ExhibitorTabScreen(),
+      ApplicationTabScreen(organizerId: FirebaseAuth.instance.currentUser?.uid ?? ''),
+      ExhibitorTabScreen(organizerId: FirebaseAuth.instance.currentUser?.uid ?? ''),
       const OrganizerProfileScreen(),
     ];
 
@@ -122,24 +122,40 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance.collection('applications').snapshots(),
-                      builder: (context, appSnap) {
-                        final appDocs = appSnap.data?.docs ?? [];
-                        final pending = appDocs.where((d) => (d.data() as Map)['status'] == 'Pending').length;
-                        final approved = appDocs.where((d) => (d.data() as Map)['status'] == 'Approved').length;
-                        final rejected = appDocs.where((d) => (d.data() as Map)['status'] == 'Rejected').length;
-                        return Row(
-                          children: [
-                            _buildStatBox('Pending', '$pending'),
-                            const SizedBox(width: 8),
-                            _buildStatBox('Approved', '$approved'),
-                            const SizedBox(width: 8),
-                            _buildStatBox('Rejected', '$rejected'),
-                          ],
-                        );
-                      },
-                    ),
+                    Builder(builder: (_) {
+                      final exIds = exDocs.map((d) => d.id).toList();
+                      if (exIds.isEmpty) {
+                        return Row(children: [
+                          _buildStatBox('Pending', '0'),
+                          const SizedBox(width: 8),
+                          _buildStatBox('Approved', '0'),
+                          const SizedBox(width: 8),
+                          _buildStatBox('Rejected', '0'),
+                        ]);
+                      }
+                      final ids = exIds.length > 30 ? exIds.sublist(0, 30) : exIds;
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('applications')
+                            .where('exhibitionId', whereIn: ids)
+                            .snapshots(),
+                        builder: (context, appSnap) {
+                          final appDocs = appSnap.data?.docs ?? [];
+                          final pending  = appDocs.where((d) => (d.data() as Map)['status'] == 'Pending').length;
+                          final approved = appDocs.where((d) => (d.data() as Map)['status'] == 'Approved').length;
+                          final rejected = appDocs.where((d) => (d.data() as Map)['status'] == 'Rejected').length;
+                          return Row(
+                            children: [
+                              _buildStatBox('Pending', '$pending'),
+                              const SizedBox(width: 8),
+                              _buildStatBox('Approved', '$approved'),
+                              const SizedBox(width: 8),
+                              _buildStatBox('Rejected', '$rejected'),
+                            ],
+                          );
+                        },
+                      );
+                    }),
                     const SizedBox(height: 24),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -205,31 +221,43 @@ class _OrganizerDashboardScreenState extends State<OrganizerDashboardScreen> {
                               },
                             ),
                           ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            const Text('Application Status', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('applications').limit(5).snapshots(),
-              builder: (context, snap) {
-                final docs = snap.data?.docs ?? [];
-                if (docs.isEmpty) {
-                  return const Text('No applications yet.', style: TextStyle(color: Colors.grey, fontSize: 13));
-                }
-                return Column(
-                  children: docs.map((d) {
-                    final data = d.data() as Map<String, dynamic>;
-                    final status = data['status'] as String? ?? 'Pending';
-                    final company = data['companyName'] as String? ?? 'Unknown';
-                    final date = (data['createdAt'] as dynamic)?.toDate()?.toString().split(' ').first ?? '';
-                    return _buildApplicationRow('Application from $company', status, date);
-                  }).toList(),
-                );
-              },
-            ),
+                  // Application Status (inside exhibitions builder so we can filter by exIds)
+                  const SizedBox(height: 24),
+                  const Text('Application Status', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  Builder(builder: (_) {
+                    final exIds = exDocs.map((d) => d.id).toList();
+                    if (exIds.isEmpty) {
+                      return const Text('No applications yet.', style: TextStyle(color: Colors.grey, fontSize: 13));
+                    }
+                    final ids = exIds.length > 30 ? exIds.sublist(0, 30) : exIds;
+                    return StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('applications')
+                          .where('exhibitionId', whereIn: ids)
+                          .limit(5)
+                          .snapshots(),
+                      builder: (context, snap) {
+                        final docs = snap.data?.docs ?? [];
+                        if (docs.isEmpty) {
+                          return const Text('No applications yet.', style: TextStyle(color: Colors.grey, fontSize: 13));
+                        }
+                        return Column(
+                          children: docs.map((d) {
+                            final data = d.data() as Map<String, dynamic>;
+                            final status = data['status'] as String? ?? 'Pending';
+                            final company = data['companyName'] as String? ?? 'Unknown';
+                            final date = (data['createdAt'] as dynamic)?.toDate()?.toString().split(' ').first ?? '';
+                            return _buildApplicationRow('Application from $company', status, date);
+                          }).toList(),
+                        );
+                      },
+                    );
+                  }),
+                ],
+              );
+            },
+          ),
           ],
         ),
       ),
@@ -654,12 +682,24 @@ class _ViewExhibitionDetailsScreenState extends State<ViewExhibitionDetailsScree
           children: [
             Stack(
               children: [
-                Container(
-                  height: 200,
-                  color: const Color(0xFFCBD5E1),
-                  width: double.infinity,
-                  child: const Center(child: Icon(Icons.image, size: 48, color: Colors.white)),
-                ),
+                Builder(builder: (_) {
+                  final imageUrl = widget.data['imageUrl'] as String?;
+                  if (imageUrl != null && imageUrl.isNotEmpty) {
+                    return Image.network(
+                      imageUrl,
+                      height: 200,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(height: 200, color: const Color(0xFFCBD5E1), child: const Center(child: Icon(Icons.broken_image, size: 48, color: Colors.white))),
+                    );
+                  }
+                  return Container(
+                    height: 200,
+                    color: const Color(0xFFCBD5E1),
+                    width: double.infinity,
+                    child: const Center(child: Icon(Icons.image, size: 48, color: Colors.white)),
+                  );
+                }),
                 if (_isEditingInline)
                   Positioned(
                     bottom: 12,
@@ -1008,12 +1048,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
         title: const Text('My Profile', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18)),
         backgroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(_isEditing ? Icons.save : Icons.edit, color: Colors.black),
-            onPressed: _isEditing ? _saveProfile : () => setState(() => _isEditing = true),
-          ),
-        ],
+        automaticallyImplyLeading: false,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -1047,14 +1082,60 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
             ),
             const SizedBox(height: 24),
 
-            _buildProfileField('Full Name', _nameCtrl, Icons.edit),
-            _buildProfileField('Organization Name', _orgCtrl, Icons.edit),
-            _buildProfileField('Email', _emailCtrl, Icons.edit),
-            _buildProfileField('Contact Number', _phoneCtrl, Icons.edit),
+            _buildProfileField('Full Name', _nameCtrl),
+            _buildProfileField('Organization Name', _orgCtrl),
+            _buildProfileField('Email', _emailCtrl),
+            _buildProfileField('Contact Number', _phoneCtrl),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
-            // ADDED: Red-bordered Logout Button custom block layout
+            if (_isEditing) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: Colors.grey),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () {
+                        setState(() => _isEditing = false);
+                        _loadProfile();
+                      },
+                      child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: _saveProfile,
+                      child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => setState(() => _isEditing = true),
+                  child: const Text('Edit Profile', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               height: 48,
@@ -1066,9 +1147,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
                 ),
                 icon: const Icon(Icons.logout, size: 18),
                 label: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                onPressed: () {
-                  _showLogoutConfirmationDialog(context);
-                },
+                onPressed: () => _showLogoutConfirmationDialog(context),
               ),
             ),
             const SizedBox(height: 24),
@@ -1097,7 +1176,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
     );
   }
 
-  Widget _buildProfileField(String label, TextEditingController ctrl, IconData icon, {bool isObscure = false}) {
+  Widget _buildProfileField(String label, TextEditingController ctrl, {bool isObscure = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Column(
@@ -1110,7 +1189,7 @@ class _OrganizerProfileScreenState extends State<OrganizerProfileScreen> {
             enabled: _isEditing,
             obscureText: isObscure,
             decoration: InputDecoration(
-              suffixIcon: Icon(icon, size: 18),
+              suffixIcon: _isEditing ? const Icon(Icons.edit, size: 18) : null,
               border: const OutlineInputBorder(),
               isDense: true,
             ),

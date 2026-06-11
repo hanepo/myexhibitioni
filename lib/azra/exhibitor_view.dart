@@ -1,13 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class ApplicationTabScreen extends StatelessWidget {
-  const ApplicationTabScreen({Key? key}) : super(key: key);
+// ─────────────────────────────────────────────
+// APPLICATION TAB  (filtered to this organizer's exhibitions)
+// ─────────────────────────────────────────────
+class ApplicationTabScreen extends StatefulWidget {
+  final String organizerId;
+  const ApplicationTabScreen({Key? key, required this.organizerId}) : super(key: key);
 
-  Stream<QuerySnapshot> _stream(String? statusFilter) {
-    Query q = FirebaseFirestore.instance.collection('applications');
-    if (statusFilter != null) q = q.where('status', isEqualTo: statusFilter);
-    return q.snapshots();
+  @override
+  State<ApplicationTabScreen> createState() => _ApplicationTabScreenState();
+}
+
+class _ApplicationTabScreenState extends State<ApplicationTabScreen> {
+  List<String> _exhibitionIds = [];
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExhibitionIds();
+  }
+
+  Future<void> _loadExhibitionIds() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('exhibitions')
+        .where('organizerId', isEqualTo: widget.organizerId)
+        .get();
+    if (!mounted) return;
+    setState(() {
+      _exhibitionIds = snap.docs.map((d) => d.id).toList();
+      _loaded = true;
+    });
+  }
+
+  Stream<QuerySnapshot>? get _stream {
+    if (!_loaded || _exhibitionIds.isEmpty) return null;
+    final ids = _exhibitionIds.length > 30 ? _exhibitionIds.sublist(0, 30) : _exhibitionIds;
+    return FirebaseFirestore.instance
+        .collection('applications')
+        .where('exhibitionId', whereIn: ids)
+        .snapshots();
   }
 
   @override
@@ -28,26 +61,33 @@ class ApplicationTabScreen extends StatelessWidget {
             tabs: [Tab(text: 'All'), Tab(text: 'Pending'), Tab(text: 'Approved'), Tab(text: 'Rejected')],
           ),
         ),
-        body: TabBarView(
-          children: [
-            _buildList(context, null),
-            _buildList(context, 'Pending'),
-            _buildList(context, 'Approved'),
-            _buildList(context, 'Rejected'),
-          ],
-        ),
+        body: !_loaded
+            ? const Center(child: CircularProgressIndicator())
+            : _exhibitionIds.isEmpty
+                ? const Center(child: Text('No exhibitions yet.', style: TextStyle(color: Colors.grey)))
+                : TabBarView(
+                    children: [
+                      _buildList(context, null),
+                      _buildList(context, 'Pending'),
+                      _buildList(context, 'Approved'),
+                      _buildList(context, 'Rejected'),
+                    ],
+                  ),
       ),
     );
   }
 
   Widget _buildList(BuildContext context, String? statusFilter) {
     return StreamBuilder<QuerySnapshot>(
-      stream: _stream(statusFilter),
+      stream: _stream,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final docs = snap.data?.docs ?? [];
+        var docs = snap.data?.docs ?? [];
+        if (statusFilter != null) {
+          docs = docs.where((d) => (d.data() as Map<String, dynamic>)['status'] == statusFilter).toList();
+        }
         if (docs.isEmpty) {
           return const Center(child: Text('No applications found.', style: TextStyle(color: Colors.grey)));
         }
@@ -66,7 +106,11 @@ class ApplicationTabScreen extends StatelessWidget {
             return ListTile(
               leading: CircleAvatar(backgroundColor: Colors.grey.shade100, child: Icon(icon, color: iconColor, size: 20)),
               title: Text(data['companyName'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              subtitle: Text('Booth: ${data['boothLabel'] ?? ''} · ${data['boothLocation'] ?? ''}', style: const TextStyle(fontSize: 12)),
+              subtitle: Text(
+                '${data['exhibitionTitle'] ?? ''}\nBooth: ${data['boothLabel'] ?? ''} · ${data['boothLocation'] ?? ''}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              isThreeLine: true,
               trailing: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -84,13 +128,46 @@ class ApplicationTabScreen extends StatelessWidget {
   }
 }
 
-class ExhibitorTabScreen extends StatelessWidget {
-  const ExhibitorTabScreen({Key? key}) : super(key: key);
+// ─────────────────────────────────────────────
+// EXHIBITOR TAB  (filtered to this organizer's exhibitions)
+// ─────────────────────────────────────────────
+class ExhibitorTabScreen extends StatefulWidget {
+  final String organizerId;
+  const ExhibitorTabScreen({Key? key, required this.organizerId}) : super(key: key);
 
-  Stream<QuerySnapshot> _stream(String? statusFilter) {
-    Query q = FirebaseFirestore.instance.collection('applications');
-    if (statusFilter != null) q = q.where('status', isEqualTo: statusFilter);
-    return q.snapshots();
+  @override
+  State<ExhibitorTabScreen> createState() => _ExhibitorTabScreenState();
+}
+
+class _ExhibitorTabScreenState extends State<ExhibitorTabScreen> {
+  List<String> _exhibitionIds = [];
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExhibitionIds();
+  }
+
+  Future<void> _loadExhibitionIds() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('exhibitions')
+        .where('organizerId', isEqualTo: widget.organizerId)
+        .get();
+    if (!mounted) return;
+    setState(() {
+      _exhibitionIds = snap.docs.map((d) => d.id).toList();
+      _loaded = true;
+    });
+  }
+
+  Stream<QuerySnapshot>? get _stream {
+    if (!_loaded || _exhibitionIds.isEmpty) return null;
+    final ids = _exhibitionIds.length > 30 ? _exhibitionIds.sublist(0, 30) : _exhibitionIds;
+    return FirebaseFirestore.instance
+        .collection('applications')
+        .where('exhibitionId', whereIn: ids)
+        .snapshots();
   }
 
   @override
@@ -110,26 +187,33 @@ class ExhibitorTabScreen extends StatelessWidget {
             tabs: [Tab(text: 'All'), Tab(text: 'Pending'), Tab(text: 'Approved'), Tab(text: 'Rejected')],
           ),
         ),
-        body: TabBarView(
-          children: [
-            _buildList(context, null),
-            _buildList(context, 'Pending'),
-            _buildList(context, 'Approved'),
-            _buildList(context, 'Rejected'),
-          ],
-        ),
+        body: !_loaded
+            ? const Center(child: CircularProgressIndicator())
+            : _exhibitionIds.isEmpty
+                ? const Center(child: Text('No exhibitions yet.', style: TextStyle(color: Colors.grey)))
+                : TabBarView(
+                    children: [
+                      _buildList(context, null),
+                      _buildList(context, 'Pending'),
+                      _buildList(context, 'Approved'),
+                      _buildList(context, 'Rejected'),
+                    ],
+                  ),
       ),
     );
   }
 
   Widget _buildList(BuildContext context, String? statusFilter) {
     return StreamBuilder<QuerySnapshot>(
-      stream: _stream(statusFilter),
+      stream: _stream,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final docs = snap.data?.docs ?? [];
+        var docs = snap.data?.docs ?? [];
+        if (statusFilter != null) {
+          docs = docs.where((d) => (d.data() as Map<String, dynamic>)['status'] == statusFilter).toList();
+        }
         if (docs.isEmpty) {
           return const Center(child: Text('No exhibitors found.', style: TextStyle(color: Colors.grey)));
         }
@@ -145,7 +229,7 @@ class ExhibitorTabScreen extends StatelessWidget {
               child: ListTile(
                 leading: const CircleAvatar(child: Icon(Icons.person)),
                 title: Text(data['contactPerson'] ?? data['companyName'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('${data['companyName'] ?? ''}\nSubmitted: $createdAt'),
+                subtitle: Text('${data['companyName'] ?? ''}\n${data['exhibitionTitle'] ?? ''}\nSubmitted: $createdAt'),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                 isThreeLine: true,
                 onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExhibitorDetailAssessmentScreen(docId: doc.id, data: data))),
@@ -158,6 +242,9 @@ class ExhibitorTabScreen extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────
+// EXHIBITOR DETAIL / ASSESSMENT SCREEN
+// ─────────────────────────────────────────────
 class ExhibitorDetailAssessmentScreen extends StatelessWidget {
   final String docId;
   final Map<String, dynamic> data;
@@ -257,6 +344,8 @@ class ExhibitorDetailAssessmentScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _row('Status', status),
+            if ((data['exhibitionTitle'] as String? ?? '').isNotEmpty)
+              _row('Exhibition', data['exhibitionTitle'] as String),
             _row('Booth', '${data['boothLabel'] ?? ''} (${data['boothSize'] ?? ''})'),
             _row('Location', data['boothLocation'] ?? ''),
             _row('Price', 'RM ${data['boothPrice'] ?? ''}'),
@@ -279,9 +368,17 @@ class ExhibitorDetailAssessmentScreen extends StatelessWidget {
               const SizedBox(height: 24),
               Row(
                 children: [
-                  Expanded(child: OutlinedButton(onPressed: () => _reject(context), child: const Text('Reject Application', style: TextStyle(color: Colors.red)))),
+                  Expanded(child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), foregroundColor: Colors.red, padding: const EdgeInsets.symmetric(vertical: 14)),
+                    onPressed: () => _reject(context),
+                    child: const Text('Reject Application'),
+                  )),
                   const SizedBox(width: 16),
-                  Expanded(child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.black), onPressed: () => _approve(context), child: const Text('Approve Application', style: TextStyle(color: Colors.white)))),
+                  Expanded(child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14)),
+                    onPressed: () => _approve(context),
+                    child: const Text('Approve Application', style: TextStyle(color: Colors.white)),
+                  )),
                 ],
               ),
             ],

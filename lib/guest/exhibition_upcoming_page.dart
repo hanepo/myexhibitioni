@@ -114,6 +114,8 @@ class _ExhibitionDetailPageState extends State<ExhibitionDetailPage> {
     final sel         = _selectedBoothId != null ? _booths[_selectedBoothId!] : null;
     final isAvailable = sel != null && !_reservedBooths.contains(_selectedBoothId);
 
+    final imageUrl = widget.data?['imageUrl'] as String?;
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -127,6 +129,27 @@ class _ExhibitionDetailPageState extends State<ExhibitionDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Exhibition image
+            if (imageUrl != null && imageUrl.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  imageUrl,
+                  height: 180,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(height: 180, color: Colors.grey.shade200, child: const Icon(Icons.broken_image, size: 48, color: Colors.grey)),
+                ),
+              )
+            else
+              Container(
+                height: 160,
+                width: double.infinity,
+                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.image_outlined, size: 48, color: Colors.grey),
+              ),
+            const SizedBox(height: 16),
+
             // Status badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
