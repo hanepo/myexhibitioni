@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../guest/guest_page.dart';
+import '../guest/exhibition_status.dart';
 import '../azra/form_screens.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -63,12 +64,6 @@ class _AdminHomePage extends StatelessWidget {
         backgroundColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: Icon(Icons.notifications_outlined, color: Colors.black),
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -271,11 +266,28 @@ class _ManageEventsPage extends StatefulWidget {
 class _ManageEventsPageState extends State<_ManageEventsPage> {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
+  String _statusFilter = 'All'; // All | Upcoming | Ongoing | Past
+  bool _sortNewestFirst = true;
+
+  static const _statusFilters = ['All', 'Upcoming', 'Ongoing', 'Past'];
 
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  bool _matchesStatus(Map<String, dynamic> data) {
+    switch (_statusFilter) {
+      case 'Upcoming':
+        return ExhibitionStatus.isUpcoming(data);
+      case 'Ongoing':
+        return ExhibitionStatus.isOngoing(data);
+      case 'Past':
+        return ExhibitionStatus.isPast(data);
+      default:
+        return true;
+    }
   }
 
   @override
@@ -316,6 +328,59 @@ class _ManageEventsPageState extends State<_ManageEventsPage> {
             ),
           ),
           const SizedBox(height: 8),
+          // Filter & sort row
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                ..._statusFilters.map((f) {
+                  final selected = _statusFilter == f;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(f,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: selected
+                                  ? Colors.white
+                                  : Colors.black87,
+                              fontWeight: selected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal)),
+                      selected: selected,
+                      selectedColor: Colors.black,
+                      backgroundColor: Colors.grey.shade100,
+                      side: BorderSide(
+                          color: selected
+                              ? Colors.black
+                              : Colors.grey.shade300),
+                      onSelected: (_) =>
+                          setState(() => _statusFilter = f),
+                    ),
+                  );
+                }),
+                ActionChip(
+                  avatar: Icon(
+                      _sortNewestFirst
+                          ? Icons.arrow_downward
+                          : Icons.arrow_upward,
+                      size: 14,
+                      color: Colors.black87),
+                  label: Text(
+                      _sortNewestFirst ? 'Newest First' : 'Oldest First',
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.black87)),
+                  backgroundColor: Colors.grey.shade100,
+                  side: BorderSide(color: Colors.grey.shade300),
+                  onPressed: () => setState(
+                      () => _sortNewestFirst = !_sortNewestFirst),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -325,7 +390,9 @@ class _ManageEventsPageState extends State<_ManageEventsPage> {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                var docs = snap.data?.docs ?? [];
+                var docs = (snap.data?.docs ?? []).where((d) {
+                  return _matchesStatus(d.data() as Map<String, dynamic>);
+                }).toList();
                 if (_searchQuery.isNotEmpty) {
                   docs = docs.where((d) {
                     final data = d.data() as Map<String, dynamic>;
@@ -337,6 +404,19 @@ class _ManageEventsPageState extends State<_ManageEventsPage> {
                         venue.contains(_searchQuery);
                   }).toList();
                 }
+                docs.sort((a, b) {
+                  final sa = (a.data()
+                          as Map<String, dynamic>)['startDate']
+                      as String? ??
+                      '';
+                  final sb = (b.data()
+                          as Map<String, dynamic>)['startDate']
+                      as String? ??
+                      '';
+                  return _sortNewestFirst
+                      ? sb.compareTo(sa)
+                      : sa.compareTo(sb);
+                });
                 if (docs.isEmpty) {
                   return const Center(
                       child: Text('No events found.',
@@ -518,15 +598,42 @@ class _ManageEventsPageState extends State<_ManageEventsPage> {
                   'Permanently remove records from dashboard',
                   style: TextStyle(fontSize: 11)),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
+              onTap: () {
                 Navigator.pop(ctx);
-                await FirebaseFirestore.instance
-                    .collection('exhibitions')
-                    .doc(docId)
-                    .delete();
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Event deleted.')));
+                // Confirm before permanently removing the event
+                showDialog(
+                  context: context,
+                  builder: (dCtx) => AlertDialog(
+                    title: const Text('Delete Event?',
+                        style:
+                            TextStyle(fontWeight: FontWeight.bold)),
+                    content: Text(
+                        'Are you sure you want to permanently delete "${ev['title'] ?? 'this event'}"? This action cannot be undone.'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(dCtx),
+                          child: const Text('Cancel')),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red),
+                        onPressed: () async {
+                          Navigator.pop(dCtx);
+                          await FirebaseFirestore.instance
+                              .collection('exhibitions')
+                              .doc(docId)
+                              .delete();
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text(
+                                      'Event deleted permanently.')));
+                        },
+                        child: const Text('Yes, Delete',
+                            style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                );
               },
             ),
           ],
@@ -1631,10 +1738,131 @@ class _AdminUserManagementPageState
 }
 
 // ─────────────────────────────────────────────
-// 6. BOOTH CONFIGURATION PAGE
+// 6. BOOTH CONFIGURATION PAGE  (real data: boothConfigs collection)
 // ─────────────────────────────────────────────
 class AdminBoothConfigPage extends StatelessWidget {
   const AdminBoothConfigPage({Key? key}) : super(key: key);
+
+  // Edit dialog used for both creating and updating a configuration
+  void _showConfigDialog(BuildContext context,
+      {String? docId, Map<String, dynamic>? data}) {
+    final nameCtrl =
+        TextEditingController(text: data?['name'] as String? ?? '');
+    final spaceCtrl =
+        TextEditingController(text: data?['space'] as String? ?? '');
+    final costCtrl =
+        TextEditingController(text: data?['baseCost'] as String? ?? '');
+    final perksCtrl =
+        TextEditingController(text: data?['perks'] as String? ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(docId == null ? 'Add Configuration' : 'Edit Configuration',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                      labelText: 'Package Name',
+                      hintText: 'e.g. Premium Booth Pack')),
+              TextField(
+                  controller: spaceCtrl,
+                  decoration: const InputDecoration(
+                      labelText: 'Space Allocated',
+                      hintText: 'e.g. 16 SQM Square Area')),
+              TextField(
+                  controller: costCtrl,
+                  decoration: const InputDecoration(
+                      labelText: 'Base Cost',
+                      hintText: 'e.g. RM 1,000 / Day')),
+              TextField(
+                  controller: perksCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                      labelText: 'Included Perks',
+                      hintText: 'e.g. Wifi + Power Outlet')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.black),
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) {
+                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                    content: Text('Package name is required.'),
+                    backgroundColor: Colors.red));
+                return;
+              }
+              Navigator.pop(ctx);
+              final payload = {
+                'name': name,
+                'space': spaceCtrl.text.trim(),
+                'baseCost': costCtrl.text.trim(),
+                'perks': perksCtrl.text.trim(),
+                'updatedAt': FieldValue.serverTimestamp(),
+              };
+              final col =
+                  FirebaseFirestore.instance.collection('boothConfigs');
+              if (docId == null) {
+                await col.add(payload);
+              } else {
+                await col.doc(docId).update(payload);
+              }
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(docId == null
+                      ? 'Configuration added.'
+                      : 'Configuration updated.'),
+                  backgroundColor: Colors.green));
+            },
+            child: const Text('Save', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Confirmation before permanently deleting from Firestore
+  void _confirmDelete(BuildContext context, String docId, String name) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Configuration?',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(
+            'Are you sure you want to permanently delete "$name"? This action cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await FirebaseFirestore.instance
+                  .collection('boothConfigs')
+                  .doc(docId)
+                  .delete();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Configuration deleted permanently.')));
+            },
+            child: const Text('Yes, Delete',
+                style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1646,121 +1874,152 @@ class AdminBoothConfigPage extends StatelessWidget {
         backgroundColor: Colors.white,
         iconTheme: const IconThemeData(color: Colors.black),
         elevation: 0,
-        actions: const [
-          Padding(
-              padding: EdgeInsets.only(right: 16),
-              child:
-                  Icon(Icons.edit_outlined, color: Colors.black))
-        ],
       ),
       backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 100,
-              width: double.infinity,
-              color: Colors.grey.shade200,
-              child: const Center(
-                  child: Icon(Icons.image_outlined,
-                      size: 36, color: Colors.grey)),
-            ),
-            const SizedBox(height: 8),
-            const Center(
-                child: Text('Exhibition Layout Mock Banner',
-                    style:
-                        TextStyle(color: Colors.grey, fontSize: 11))),
-            const SizedBox(height: 20),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                  color: Colors.green.shade100,
-                  borderRadius: BorderRadius.circular(4)),
-              child: const Text('ACTIVE PACKAGE',
-                  style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.green,
-                      fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 8),
-            const Text('Premium Booth Pack',
-                style: TextStyle(
-                    fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            const Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('SPACE ALLOCATED',
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey,
-                              letterSpacing: 0.5)),
-                      SizedBox(height: 2),
-                      Text('16 SQM Square Area',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('BASE COST',
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey,
-                              letterSpacing: 0.5)),
-                      SizedBox(height: 2),
-                      Text('RM 1,000 / Day',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text('INCLUDED PERKS',
-                style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey,
-                    letterSpacing: 0.5)),
-            const SizedBox(height: 6),
-            const Row(
-              children: [
-                Icon(Icons.check_circle_outline,
-                    size: 16, color: Colors.green),
-                SizedBox(width: 6),
-                Expanded(
-                    child: Text(
-                        'High-Speed Wifi Access + Dedicated 15A Power Outlet',
-                        style: TextStyle(fontSize: 13))),
-              ],
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(
-                        content: Text('Configuration deleted.'))),
-                icon: const Icon(Icons.delete_outline,
-                    color: Colors.red, size: 16),
-                label: const Text('Delete Configuration',
-                    style: TextStyle(color: Colors.red)),
-                style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.red),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8))),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.black,
+        onPressed: () => _showConfigDialog(context),
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream:
+            FirebaseFirestore.instance.collection('boothConfigs').snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final docs = snap.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.tune, size: 48, color: Colors.grey.shade300),
+                  const SizedBox(height: 12),
+                  const Text('No booth configurations yet.',
+                      style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 4),
+                  const Text('Tap + to add one.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
               ),
-            ),
-          ],
-        ),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: docs.length,
+            itemBuilder: (context, i) {
+              final doc = docs[i];
+              final data = doc.data() as Map<String, dynamic>;
+              final name = data['name'] as String? ?? 'Unnamed Package';
+              final space = data['space'] as String? ?? '—';
+              final cost = data['baseCost'] as String? ?? '—';
+              final perks = data['perks'] as String? ?? '';
+              return Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade200),
+                    borderRadius: BorderRadius.circular(10)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                              color: Colors.green.shade100,
+                              borderRadius: BorderRadius.circular(4)),
+                          child: const Text('ACTIVE PACKAGE',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined,
+                              size: 20, color: Colors.black54),
+                          onPressed: () => _showConfigDialog(context,
+                              docId: doc.id, data: data),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline,
+                              size: 20, color: Colors.red),
+                          onPressed: () =>
+                              _confirmDelete(context, doc.id, name),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(name,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('SPACE ALLOCATED',
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey,
+                                      letterSpacing: 0.5)),
+                              const SizedBox(height: 2),
+                              Text(space,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('BASE COST',
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey,
+                                      letterSpacing: 0.5)),
+                              const SizedBox(height: 2),
+                              Text(cost,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (perks.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Text('INCLUDED PERKS',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey,
+                              letterSpacing: 0.5)),
+                      const SizedBox(height: 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.check_circle_outline,
+                              size: 16, color: Colors.green),
+                          const SizedBox(width: 6),
+                          Expanded(
+                              child: Text(perks,
+                                  style: const TextStyle(fontSize: 13))),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -1979,8 +2238,9 @@ class _AdminProfilePageState extends State<_AdminProfilePage> {
           labelText: label,
           labelStyle:
               const TextStyle(fontSize: 12, color: Colors.grey),
-          suffixIcon:
-              const Icon(Icons.edit, size: 16, color: Colors.grey),
+          suffixIcon: _isEditing && !obscure
+              ? const Icon(Icons.edit, size: 16, color: Colors.grey)
+              : null,
           border: const UnderlineInputBorder(),
           enabledBorder: const UnderlineInputBorder(
               borderSide: BorderSide(color: Colors.grey)),

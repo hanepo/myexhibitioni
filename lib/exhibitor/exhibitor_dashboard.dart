@@ -6,7 +6,7 @@ import '../guest/all_upcoming_page.dart';
 import '../guest/all_ongoing_page.dart';
 import '../guest/exhibition_upcoming_page.dart';
 import '../guest/exhibition_ongoing_page.dart';
-import 'application_form.dart';
+import '../guest/exhibition_status.dart';
 
 // ─────────────────────────────────────────────
 // EXHIBITOR DASHBOARD – bottom nav shell
@@ -106,7 +106,6 @@ class _ExhibitorHomePage extends StatelessWidget {
             _ExhibitionGrid(
                 stream: FirebaseFirestore.instance
                     .collection('exhibitions')
-                    .limit(4)
                     .snapshots(),
                 isUpcoming: true),
             const SizedBox(height: 20),
@@ -117,7 +116,6 @@ class _ExhibitorHomePage extends StatelessWidget {
             _ExhibitionGrid(
                 stream: FirebaseFirestore.instance
                     .collection('exhibitions')
-                    .limit(4)
                     .snapshots(),
                 isUpcoming: false),
             const SizedBox(height: 20),
@@ -204,7 +202,16 @@ class _ExhibitionGrid extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: stream,
       builder: (context, snap) {
-        final docs = snap.data?.docs ?? [];
+        // Classify by real start/end dates so an event never shows in both lists
+        final docs = (snap.data?.docs ?? [])
+            .where((d) {
+              final data = d.data() as Map<String, dynamic>;
+              return isUpcoming
+                  ? ExhibitionStatus.isUpcoming(data)
+                  : ExhibitionStatus.isOngoing(data);
+            })
+            .take(4)
+            .toList();
         if (docs.isEmpty) {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -351,16 +358,6 @@ class _EventMenuPage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           _EventMenuTile(
-            icon: Icons.grid_view,
-            label: 'View Floor Plan Layout',
-            iconColor: const Color(0xFF5C4EBD),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => const ExhibitionFloorPlanPage()),
-            ),
-          ),
-          _EventMenuTile(
             icon: Icons.assignment,
             label: 'Check Booth Applications',
             iconColor: const Color(0xFF5C4EBD),
@@ -405,310 +402,6 @@ class _EventMenuTile extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// FLOOR PLAN PAGE
-// ─────────────────────────────────────────────
-class ExhibitionFloorPlanPage extends StatefulWidget {
-  const ExhibitionFloorPlanPage({Key? key}) : super(key: key);
-
-  @override
-  State<ExhibitionFloorPlanPage> createState() =>
-      _ExhibitionFloorPlanPageState();
-}
-
-class _ExhibitionFloorPlanPageState extends State<ExhibitionFloorPlanPage> {
-  int? _selectedIndex;
-
-  final List<Map<String, dynamic>> _booths = [
-    {'label': 'Booth A12', 'status': 0, 'size': '3m x 3m', 'price': 'RM 500', 'location': 'Hall A - Row A, No. 12'},
-    {'label': 'Booth B01', 'status': 1, 'size': '3m x 6m', 'price': 'RM 1000', 'location': 'Hall A - Row B, No. 01'},
-    {'label': 'Booth C09', 'status': 2, 'size': '3m x 3m', 'price': 'RM 500', 'location': 'Hall B - Row C, No. 09'},
-    {'label': 'Booth A02', 'status': 0, 'size': '3m x 3m', 'price': 'RM 500', 'location': 'Hall A - Row A, No. 02'},
-    {'label': 'Booth B03', 'status': 2, 'size': '5m x 5m', 'price': 'RM 1,200', 'location': 'Hall A - Row B, No. 03'},
-    {'label': 'Booth C04', 'status': 0, 'size': '3m x 3m', 'price': 'RM 500', 'location': 'Hall A - Row C, No. 04'},
-    {'label': 'Booth A05', 'status': 1, 'size': '4m x 4m', 'price': 'RM 800', 'location': 'Hall A - Row A, No. 05'},
-    {'label': 'Booth B06', 'status': 0, 'size': '3m x 3m', 'price': 'RM 500', 'location': 'Hall A - Row B, No. 06'},
-    {'label': 'Booth C07', 'status': 0, 'size': '5m x 5m', 'price': 'RM 1,000', 'location': 'Hall A - Row C, No. 07'},
-  ];
-
-  Color _boothColor(int status, bool selected) {
-    if (selected) return Colors.green.shade500;
-    switch (status) {
-      case 1:
-        return Colors.red.shade500;
-      case 2:
-        return Colors.indigo.shade500;
-      default:
-        return Colors.green.shade500;
-    }
-  }
-
-  String _statusLabel(int status) {
-    switch (status) {
-      case 1:
-        return 'BOOKED';
-      case 2:
-        return 'RESERVED';
-      default:
-        return 'AVAILABLE';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sel = _selectedIndex != null ? _booths[_selectedIndex!] : null;
-    final isAvailable = sel != null && sel['status'] == 0;
-
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text('Exhibition Floor Plan',
-            style: TextStyle(
-                color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
-      ),
-      backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Row(
-              children: [
-                _FilterChip(label: 'Size'),
-                const SizedBox(width: 8),
-                _FilterChip(label: 'Price'),
-                const Spacer(),
-                const Icon(Icons.search, color: Colors.grey),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            color: Colors.grey.shade100,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: const Text('Main Stage',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 13)),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: GridView.builder(
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  childAspectRatio: 1.0,
-                ),
-                itemCount: _booths.length,
-                itemBuilder: (context, index) {
-                  final booth = _booths[index];
-                  final status = booth['status'] as int;
-                  final selected = _selectedIndex == index;
-                  final canTap = status == 0;
-
-                  return GestureDetector(
-                    onTap: canTap
-                        ? () => setState(() {
-                              _selectedIndex =
-                                  _selectedIndex == index ? null : index;
-                            })
-                        : null,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      decoration: BoxDecoration(
-                        color: _boothColor(status, selected),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: selected
-                              ? Colors.green.shade800
-                              : Colors.transparent,
-                          width: selected ? 2.5 : 0,
-                        ),
-                      ),
-                      child: Center(
-                        child: Text(
-                          booth['label'],
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: Row(
-              children: [
-                _LegendDot(
-                    color: Colors.green.shade500, label: 'Available'),
-                const SizedBox(width: 14),
-                _LegendDot(
-                    color: Colors.red.shade500, label: 'Booked'),
-                const SizedBox(width: 14),
-                _LegendDot(
-                    color: Colors.indigo.shade500, label: 'Reserved'),
-              ],
-            ),
-          ),
-          if (sel != null) ...[
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(sel['label'],
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 16)),
-                        const SizedBox(height: 2),
-                        Text('Size: ${sel['size']}',
-                            style: const TextStyle(fontSize: 13)),
-                        Text('Price: ${sel['price']}',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600, fontSize: 13)),
-                        Text('Location: ${sel['location']}',
-                            style: const TextStyle(
-                                color: Colors.grey, fontSize: 11)),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      _statusLabel(sel['status'] as int),
-                      style: TextStyle(
-                          color: isAvailable
-                              ? Colors.green.shade700
-                              : Colors.grey.shade700,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 20),
-            child: SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: (sel != null && isAvailable)
-                    ? () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ExhibitorApplicationFormPage(
-                              boothLabel: sel['label'],
-                              boothSize: sel['size'],
-                              boothPrice: sel['price'],
-                              boothLocation: sel['location'],
-                            ),
-                          ),
-                        )
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  disabledBackgroundColor: Colors.grey.shade300,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6)),
-                ),
-                child: Text(
-                  sel == null
-                      ? 'Select a Booth First'
-                      : 'Apply For This Booth',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  final String label;
-  const _FilterChip({Key? key, required this.label}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade400),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label,
-              style:
-                  const TextStyle(fontSize: 13, color: Colors.grey)),
-          const SizedBox(width: 4),
-          const Icon(Icons.arrow_drop_down,
-              size: 16, color: Colors.grey),
-        ],
-      ),
-    );
-  }
-}
-
-class _LegendDot extends StatelessWidget {
-  final Color color;
-  final String label;
-  const _LegendDot({Key? key, required this.color, required this.label})
-      : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-              color: color, borderRadius: BorderRadius.circular(3)),
-        ),
-        const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 12)),
-      ],
     );
   }
 }
@@ -961,10 +654,6 @@ class _ExhibitorProfilePageState extends State<_ExhibitorProfilePage> {
   bool _isEditing = false;
   bool _isLoading = true;
 
-  int _pendingCount = 0;
-  int _approvedCount = 0;
-  int _rejectedCount = 0;
-
   @override
   void initState() {
     super.initState();
@@ -988,26 +677,6 @@ class _ExhibitorProfilePageState extends State<_ExhibitorProfilePage> {
         _nameCtrl.text = data['name'] ?? '';
         _orgCtrl.text = data['organizationName'] ?? '';
         _phoneCtrl.text = data['phone'] ?? '';
-      }
-
-      final appsSnap = await FirebaseFirestore.instance
-          .collection('applications')
-          .where('exhibitorId', isEqualTo: user.uid)
-          .get();
-
-      int pending = 0, approved = 0, rejected = 0;
-      for (final d in appsSnap.docs) {
-        final s = d.data()['status'] as String? ?? '';
-        if (s == 'Pending') pending++;
-        else if (s == 'Approved') approved++;
-        else if (s == 'Rejected') rejected++;
-      }
-      if (mounted) {
-        setState(() {
-          _pendingCount = pending;
-          _approvedCount = approved;
-          _rejectedCount = rejected;
-        });
       }
     } catch (_) {}
     if (mounted) setState(() => _isLoading = false);
@@ -1092,8 +761,13 @@ class _ExhibitorProfilePageState extends State<_ExhibitorProfilePage> {
                         size: 36, color: Colors.white),
                   ),
                   const SizedBox(height: 12),
-                  const Text('Exhibitor Corporate Account',
-                      style: TextStyle(
+                  Text(
+                      _nameCtrl.text.trim().isNotEmpty
+                          ? _nameCtrl.text.trim()
+                          : (_emailCtrl.text.isNotEmpty
+                              ? _emailCtrl.text
+                              : 'Exhibitor'),
+                      style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.bold)),
                   const Text('Role: Exhibitor Client Profile',
                       style:
@@ -1107,12 +781,32 @@ class _ExhibitorProfilePageState extends State<_ExhibitorProfilePage> {
                 style: TextStyle(
                     fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                _statCol('Pending', '$_pendingCount'),
-                _statCol('Approved', '$_approvedCount'),
-                _statCol('Rejected', '$_rejectedCount'),
-              ],
+            // Live stats — updates the moment an application is made/decided
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('applications')
+                  .where('exhibitorId',
+                      isEqualTo:
+                          FirebaseAuth.instance.currentUser?.uid ?? 'none')
+                  .snapshots(),
+              builder: (context, snap) {
+                int pending = 0, approved = 0, rejected = 0;
+                for (final d in snap.data?.docs ?? []) {
+                  final s = (d.data()
+                          as Map<String, dynamic>)['status'] as String? ??
+                      '';
+                  if (s == 'Pending') pending++;
+                  if (s == 'Approved') approved++;
+                  if (s == 'Rejected') rejected++;
+                }
+                return Row(
+                  children: [
+                    _statCol('Pending', '$pending'),
+                    _statCol('Approved', '$approved'),
+                    _statCol('Rejected', '$rejected'),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 24),
 
@@ -1219,8 +913,9 @@ class _ExhibitorProfilePageState extends State<_ExhibitorProfilePage> {
           labelText: label,
           labelStyle:
               const TextStyle(fontSize: 12, color: Colors.grey),
-          suffixIcon:
-              const Icon(Icons.edit, size: 16, color: Colors.grey),
+          suffixIcon: _isEditing && !obscure
+              ? const Icon(Icons.edit, size: 16, color: Colors.grey)
+              : null,
           border: const UnderlineInputBorder(),
           enabledBorder: const UnderlineInputBorder(
               borderSide: BorderSide(color: Colors.grey)),

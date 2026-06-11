@@ -8,6 +8,7 @@ import 'exhibition_ongoing_page.dart';
 import 'signup_page.dart';
 import 'login_page.dart';
 import 'past_exhibition_page.dart';
+import 'exhibition_status.dart';
 
 class MyExhibitPage extends StatelessWidget {
   const MyExhibitPage({super.key});
@@ -202,9 +203,18 @@ class MyExhibitPage extends StatelessWidget {
     return SizedBox(
       height: 200,
       child: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('exhibitions').limit(8).snapshots(),
+        stream: FirebaseFirestore.instance.collection('exhibitions').snapshots(),
         builder: (context, snap) {
-          final docs = snap.data?.docs ?? [];
+          // Classify by real start/end dates so an event never shows in both lists
+          final docs = (snap.data?.docs ?? [])
+              .where((d) {
+                final data = d.data() as Map<String, dynamic>;
+                return isUpcoming
+                    ? ExhibitionStatus.isUpcoming(data)
+                    : ExhibitionStatus.isOngoing(data);
+              })
+              .take(8)
+              .toList();
           if (docs.isEmpty) {
             return Center(
               child: Text(
@@ -326,7 +336,7 @@ class MyExhibitPage extends StatelessWidget {
   }
 }
 
-// --- The Auto-Sliding Slider Widget ---
+// --- The Auto-Sliding Slider Widget (real past exhibitions from Firestore) ---
 class PastExhibitionsSlider extends StatefulWidget {
   const PastExhibitionsSlider({super.key});
 
@@ -337,24 +347,15 @@ class PastExhibitionsSlider extends StatefulWidget {
 class _PastExhibitionsSliderState extends State<PastExhibitionsSlider> {
   final PageController _pageController = PageController(initialPage: 0);
   int _currentPage = 0;
-  late Timer _timer;
-
-  final List<String> _highlights = [
-    "Culture Fest 2026",
-    "Tech Expo MIIT",
-    "Heritage Night",
-  ];
+  int _itemCount = 0;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 3), (Timer timer) {
-      if (_currentPage < _highlights.length - 1) {
-        _currentPage++;
-      } else {
-        _currentPage = 0;
-      }
-
+      if (_itemCount <= 1) return;
+      _currentPage = (_currentPage + 1) % _itemCount;
       if (_pageController.hasClients) {
         _pageController.animateToPage(
           _currentPage,
@@ -367,75 +368,109 @@ class _PastExhibitionsSliderState extends State<PastExhibitionsSlider> {
 
   @override
   void dispose() {
-    _timer.cancel();
+    _timer?.cancel();
     _pageController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 10, top: 16),
-          child: Text("Past Exhibitions Highlights",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        ),
-        SizedBox(
-          height: 180,
-          child: PageView.builder(
-            controller: _pageController,
-            onPageChanged: (value) => setState(() => _currentPage = value),
-            itemCount: _highlights.length,
-            itemBuilder: (context, index) {
-              final titleText = _highlights[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PastExhibitionPage(title: titleText),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('exhibitions').snapshots(),
+      builder: (context, snap) {
+        // Only exhibitions whose end date has already passed
+        final pastDocs = (snap.data?.docs ?? []).where((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return ExhibitionStatus.isPast(data);
+        }).toList();
+        _itemCount = pastDocs.length;
+
+        if (pastDocs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        if (_currentPage >= pastDocs.length) _currentPage = 0;
+
+        return Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10, top: 16),
+              child: Text("Past Exhibitions Highlights",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            SizedBox(
+              height: 180,
+              child: PageView.builder(
+                controller: _pageController,
+                onPageChanged: (value) => setState(() => _currentPage = value),
+                itemCount: pastDocs.length,
+                itemBuilder: (context, index) {
+                  final doc = pastDocs[index];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final titleText = data['title'] as String? ?? 'Exhibition';
+                  final imageUrl = data['imageUrl'] as String? ?? '';
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                    clipBehavior: Clip.antiAlias,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: InkWell(
                       borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => PastExhibitionPage(data: data),
+                          ),
+                        );
+                      },
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (imageUrl.isNotEmpty)
+                            Image.network(imageUrl, fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(color: Colors.grey[200]))
+                          else
+                            Container(color: Colors.grey[200]),
+                          Container(
+                            alignment: Alignment.center,
+                            color: imageUrl.isNotEmpty ? Colors.black.withOpacity(0.35) : null,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              titleText,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: imageUrl.isNotEmpty ? Colors.white : Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      titleText,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(
-            _highlights.length,
-                (index) => AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              margin: const EdgeInsets.all(4),
-              width: _currentPage == index ? 24 : 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: _currentPage == index ? Colors.black : Colors.grey[400],
-                borderRadius: BorderRadius.circular(4),
+                  );
+                },
               ),
             ),
-          ),
-        ),
-      ],
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                pastDocs.length,
+                    (index) => AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  margin: const EdgeInsets.all(4),
+                  width: _currentPage == index ? 24 : 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _currentPage == index ? Colors.black : Colors.grey[400],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

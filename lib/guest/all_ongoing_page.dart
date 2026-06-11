@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'exhibition_ongoing_page.dart';
+import 'exhibition_status.dart';
 
 class AllOngoingPage extends StatefulWidget {
   const AllOngoingPage({super.key});
@@ -11,6 +12,22 @@ class AllOngoingPage extends StatefulWidget {
 
 class _AllOngoingPageState extends State<AllOngoingPage> {
   String _searchQuery = '';
+  String _dateFilter = 'All'; // All | Ending This Week | Ending This Month
+  bool _sortAscending = true;
+
+  static const _dateFilters = ['All', 'Ending This Week', 'Ending This Month'];
+
+  bool _matchesDateFilter(Map<String, dynamic> data) {
+    if (_dateFilter == 'All') return true;
+    final end = DateTime.tryParse(data['endDate'] as String? ?? '');
+    if (end == null) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (_dateFilter == 'Ending This Week') {
+      return !end.isBefore(today) && end.difference(today).inDays <= 7;
+    }
+    return end.year == now.year && end.month == now.month;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +48,7 @@ class _AllOngoingPageState extends State<AllOngoingPage> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: TextField(
               onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
               decoration: InputDecoration(
@@ -43,6 +60,44 @@ class _AllOngoingPageState extends State<AllOngoingPage> {
               ),
             ),
           ),
+          // Filter & sort row
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                ..._dateFilters.map((f) {
+                  final selected = _dateFilter == f;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(f,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: selected ? Colors.white : Colors.black87,
+                              fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
+                      selected: selected,
+                      selectedColor: Colors.black,
+                      backgroundColor: Colors.grey.shade100,
+                      side: BorderSide(color: selected ? Colors.black : Colors.grey.shade300),
+                      onSelected: (_) => setState(() => _dateFilter = f),
+                    ),
+                  );
+                }),
+                ActionChip(
+                  avatar: Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+                      size: 14, color: Colors.black87),
+                  label: Text(_sortAscending ? 'Ending Soonest' : 'Ending Latest',
+                      style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                  backgroundColor: Colors.grey.shade100,
+                  side: BorderSide(color: Colors.grey.shade300),
+                  onPressed: () => setState(() => _sortAscending = !_sortAscending),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('exhibitions').snapshots(),
@@ -50,7 +105,11 @@ class _AllOngoingPageState extends State<AllOngoingPage> {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                var docs = snap.data?.docs ?? [];
+                // Only genuinely ongoing exhibitions (today within start–end range)
+                var docs = (snap.data?.docs ?? []).where((d) {
+                  final data = d.data() as Map<String, dynamic>;
+                  return ExhibitionStatus.isOngoing(data) && _matchesDateFilter(data);
+                }).toList();
                 if (_searchQuery.isNotEmpty) {
                   docs = docs.where((d) {
                     final data = d.data() as Map<String, dynamic>;
@@ -59,9 +118,14 @@ class _AllOngoingPageState extends State<AllOngoingPage> {
                     return title.contains(_searchQuery) || venue.contains(_searchQuery);
                   }).toList();
                 }
+                docs.sort((a, b) {
+                  final ea = (a.data() as Map<String, dynamic>)['endDate'] as String? ?? '';
+                  final eb = (b.data() as Map<String, dynamic>)['endDate'] as String? ?? '';
+                  return _sortAscending ? ea.compareTo(eb) : eb.compareTo(ea);
+                });
                 if (docs.isEmpty) {
                   return const Center(
-                    child: Text('No exhibitions found.', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                    child: Text('No ongoing exhibitions found.', style: TextStyle(color: Colors.grey, fontSize: 14)),
                   );
                 }
                 return GridView.builder(
@@ -76,6 +140,7 @@ class _AllOngoingPageState extends State<AllOngoingPage> {
                     final startDate = data['startDate'] as String? ?? '';
                     final endDate = data['endDate'] as String? ?? '';
                     final dateLabel = startDate.isEmpty ? '' : '$startDate – $endDate';
+                    final imageUrl = data['imageUrl'] as String? ?? '';
 
                     return Card(
                       elevation: 2,
@@ -98,6 +163,9 @@ class _AllOngoingPageState extends State<AllOngoingPage> {
                                   decoration: BoxDecoration(
                                     color: Colors.grey[300],
                                     borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                                    image: imageUrl.isNotEmpty
+                                        ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover)
+                                        : null,
                                   ),
                                   padding: const EdgeInsets.all(10),
                                   alignment: Alignment.topLeft,
